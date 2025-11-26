@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Check-in Wedding – 1 bouton</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{font-family:system-ui, sans-serif; margin:0; padding:.5rem; background:#f7f7f7}
+  h1{margin-top:0; font-size:1.3rem}
+  .kpi{display:flex; gap:.5rem; margin-bottom:.5rem; flex-wrap:wrap}
+  .kpi div{background:#fff; padding:.4rem .8rem; border-radius:4px; font-size:.9rem; box-shadow:0 0 2px #aaa}
+  .filters{display:flex; gap:.5rem; margin-bottom:.5rem}
+  .search{flex:1}
+  .cards{display:grid; gap:.6rem}
+  .card{display:flex; justify-content:space-between; align-items:center; padding:.7rem; background:#fff; border:1px solid #ccc; border-radius:6px}
+  .card.present  {background:#d1ffd1}
+  .card.absent   {background:#ffe6e6}
+  .name{font-weight:600}
+  .meta{font-size:.75rem; color:#555}
+  .bigbtn{font-size:1.1rem; padding:.5rem 1rem; border:none; border-radius:4px; cursor:pointer; color:#fff}
+  .bigbtn.present {background:#28a745}
+  .bigbtn.absent  {background:#dc3545}
+  .bigbtn.empty   {background:#6c757d}
+</style>
+</head>
+<body>
+<h1>Check-in Wedding</h1>
+<div class="kpi">
+  <div>Total : <span id="total">-</span></div>
+  <div>Confirmés : <span id="conf">-</span></div>
+  <div>Présents : <span id="pres">-</span></div>
+  <div>Tables remplies : <span id="tbl">-</span></div>
+</div>
+<div class="filters">
+  <input id="search" class="search" placeholder="Nom / prénom / table">
+  <select id="tableFilter"><option value="">Toutes tables</option></select>
+  <label><input type="checkbox" id="onlyPres"> Présents</label>
+</div>
+<section id="list" class="cards"></section>
+
+<script>
+/* CONFIG */
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyR5UZ64oTMjjX2Q51lLSidMkdxn7W0uc24WM7caSZQbzAQvMjDYAd5Hs2JQlY-iMzN/exec'; // <--- REMPLACER
+let guests = [];
+
+/* FETCH */
+async function load(){
+  const r = await fetch(SCRIPT_URL);
+  guests = await r.json();
+  render(); updateKpi(); fillTables();
+}
+load();
+setInterval(load, 10000);
+
+/* RENDER */
+function render(){
+  const q = search.value.trim().toLowerCase();
+  const t = tableFilter.value;
+  const only = onlyPres.checked;
+  const rows = guests.filter(g =>
+    (g['Nom & Prénoms'].toLowerCase().includes(q) || g.TABLE.toLowerCase().includes(q)) &&
+    (!t || g.TABLE === t) &&
+    (!only || g.PRESENCE === 'PRESENT')
+  );
+  list.innerHTML = rows.map(g => {
+    const state = g.PRESENCE || 'empty';
+    const label = state==='PRESENT'?'✓ PRESENT':state==='ABSENT'?'✗ ABSENT':'○ VIDE';
+    return `
+    <div class="card ${state}" data-id="${g.id}">
+      <div class="info">
+        <div class="name">${g['Nom & Prénoms']}</div>
+        <div class="meta">${g.TABLE} · ${g.INVITANT}</div>
+      </div>
+      <button class="bigbtn ${state}" onclick="cycle(${g.id},'${state}')">${label}</button>
+    </div>`;
+  }).join('');
+}
+search.oninput = tableFilter.onchange = onlyPres.onchange = render;
+
+/* KPI */
+function updateKpi(){
+  fetch(SCRIPT_URL+'?path=kpis').then(r=>r.json()).then(k=>{
+    total.textContent = k.total;
+    conf.textContent  = k.confirmed;
+    pres.textContent  = k.present;
+    tbl.textContent   = k.tablesFilled + '/30';
+  });
+}
+
+/* CYCLE : empty → PRESENT → ABSENT → empty */
+function cycle(id, current){
+  const next = current==='empty'?'PRESENT':current==='PRESENT'?'ABSENT':'';
+  sendPatch(id, {PRESENCE: next || null}); // null pour vider la cellule
+}
+function sendPatch(id, delta){
+  fetch(`${SCRIPT_URL}?id=${id}`, {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(delta)
+  }).then(()=>load());
+}
+function fillTables(){
+  const ts = [...new Set(guests.map(g=>g.TABLE))].sort();
+  tableFilter.innerHTML = '<option value="">Toutes tables</option>' + ts.map(t=>`<option>${t}</option>`).join('');
+}
+</script>
+
+<!-- PWA offline -->
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('data:text/javascript,('+function(){
+    const CACHE='v1';
+    self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/']))));
+    self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));
+  }+')()');
+}
+</script>
+</body>
+</html>
